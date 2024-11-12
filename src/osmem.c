@@ -13,10 +13,18 @@ static struct block_meta *head = NULL;
 
 size_t align8(size_t size) { return (size + 7) & ~7; }
 
+struct block_meta *get_last_block() {
+  struct block_meta *iter = head;
+  while (iter->next) {
+    iter = iter->next;
+  }
+  return iter;
+}
+
 void extend_heap(size_t size) {
   size_t extend_size = ALLOC_SIZE;
   if (size < ALLOC_SIZE)
-    extend_size = align8(size + sizeof(struct block_meta));
+    extend_size = align8(size) + sizeof(struct block_meta);
   struct block_meta *block = sbrk(extend_size);
   block->size = extend_size - sizeof(struct block_meta);
   block->status = STATUS_FREE;
@@ -25,11 +33,9 @@ void extend_heap(size_t size) {
   if (head == NULL)
     head = block;
   else {
-    struct block_meta *iter = head;
-    while (iter->next)
-      iter = iter->next;
-    iter->next = block;
-    block->prev = iter;
+    struct block_meta *last = get_last_block();
+    last->next = block;
+    block->prev = last;
   }
 }
 
@@ -80,7 +86,7 @@ struct block_meta *find_best_block(size_t size) {
 }
 
 struct block_meta *allocate_large_block(size_t size) {
-  size_t aligned_size = align8(size + sizeof(struct block_meta));
+  size_t aligned_size = align8(size) + sizeof(struct block_meta);
   struct block_meta *block = mmap(NULL, aligned_size, PROT_READ | PROT_WRITE,
                                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   block->size = aligned_size - sizeof(struct block_meta);
@@ -97,7 +103,7 @@ struct block_meta *allocate_small_block(size_t size) {
   struct block_meta *block = find_best_block(aligned_size);
   if (block == NULL) {
     extend_heap(aligned_size);
-    block = find_best_block(aligned_size);
+    block = get_last_block();
   }
   block->status = STATUS_ALLOC;
   return block;
@@ -130,8 +136,11 @@ void os_free(void *ptr) {
 }
 
 void *os_calloc(size_t nmemb, size_t size) {
-  /* TODO: Implement os_calloc */
-  return NULL;
+  size_t total_size = nmemb * size;
+  if (nmemb == 0 || size == 0)
+    return;
+  void *ptr = os_malloc(total_size);
+  memset(ptr, 0, total_size);
 }
 
 void *os_realloc(void *ptr, size_t size) {
