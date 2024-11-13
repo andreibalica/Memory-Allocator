@@ -43,7 +43,7 @@ void combine_free_blocks() {
   struct block_meta *iter = head;
   while (iter && iter->next) {
     if (iter->status == STATUS_FREE && iter->next->status == STATUS_FREE) {
-      iter->size += iter->next->size;
+      iter->size += iter->next->size + sizeof(struct block_meta);
       iter->next = iter->next->next;
       if (iter->next)
         iter->next->prev = iter;
