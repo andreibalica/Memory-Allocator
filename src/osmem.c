@@ -39,6 +39,19 @@ void extend_heap(size_t size) {
   }
 }
 
+void combine_two_blocks(struct block_meta *block, size_t size) {
+  size_t aligned_size = align8(size);
+  if (block->next->status == STATUS_FREE &&
+      block->size + block->next->size + sizeof(struct block_meta *) >=
+          aligned_size) {
+    block->size += block->next->size + sizeof(struct block_meta);
+    block->next = block->next->next;
+    if (block->next) {
+      block->next->prev = block;
+    }
+  }
+}
+
 void combine_free_blocks() {
   struct block_meta *iter = head;
   while (iter && iter->next) {
@@ -125,14 +138,17 @@ void *os_malloc(size_t size) {
 
 void os_free(void *ptr) {
   if (ptr == NULL)
-    return;
-  struct block_meta *block = (struct block_meta *)ptr - 1;
+    return ptr;
+  struct block_meta *block =
+      (struct block_meta *)((char *)ptr - sizeof(struct block_meta));
   if (block->status == STATUS_MAPPED) {
+    block->status = STATUS_FREE;
     munmap(block, block->size + sizeof(struct block_meta));
   } else {
     block->status = STATUS_FREE;
     combine_free_blocks();
   }
+  return NULL;
 }
 
 void *os_calloc(size_t nmemb, size_t size) {
@@ -141,9 +157,41 @@ void *os_calloc(size_t nmemb, size_t size) {
     return;
   void *ptr = os_malloc(total_size);
   memset(ptr, 0, total_size);
+  return ptr;
 }
 
 void *os_realloc(void *ptr, size_t size) {
-  /* TODO: Implement os_realloc */
+  size_t aligned_size = align8(size);
+  if (ptr == NULL) {
+    ptr = os_malloc(size);
+    return ptr;
+  }
+  if (size == 0) {
+    os_free(ptr);
+    return NULL;
+  }
+  struct block_meta *block = (struct block_meta *)ptr;
+  if (block->size >= aligned_size)
+    return ptr;
+  combine_free_blocks();
+  if (block->status == STATUS_MAPPED) {
+    void *new_ptr = os_malloc(aligned_size);
+    memcpy(new_ptr, ptr, block->size);
+    os_free(ptr);
+    return new_ptr;
+  }
+  if (block->size == STATUS_ALLOC) {
+    combine_two_blocks(block, aligned_size);
+    if (block->size >= aligned_size) {
+      split_block(block, aligned_size);
+      return ptr;
+    }
+    if (block->size < aligned_size) {
+      void *new_ptr = os_malloc(aligned_size);
+      memcpy(new_ptr, ptr, block->size);
+      os_free(ptr);
+      return new_ptr;
+    }
+  }
   return NULL;
 }
